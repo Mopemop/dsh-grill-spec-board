@@ -73,7 +73,12 @@ window.__ModuleLoader__.load({
 
     function Icon({ name, cls = '' }) {
       const shapes = ICONS[name] ?? []
-      return h('svg', { className: `i ${cls}`, 'aria-hidden': true },
+      return h('svg', {
+        className: `i ${cls}`,
+        viewBox: '0 0 24 24',
+        'aria-hidden': true,
+        focusable: 'false',
+      },
         shapes.map(([tag, props], index) => h(tag, { key: index, ...props })))
     }
 
@@ -996,34 +1001,61 @@ window.__ModuleLoader__.load({
 
     function ErDiagram({ model }) {
       if (!model?.entities?.length) return null
-      const W = 210
-      const GAPX = 70
-      const GAPY = 40
-      const HEAD = 34
-      const ROW = 20
-      const boxH = (entity) => HEAD + Math.max(1, entity.fields.length) * ROW + 12
-      const rowH = Math.max(...model.entities.map(boxH))
-      const cols = Math.min(3, model.entities.length)
-      const rows = Math.ceil(model.entities.length / cols)
+      const entities = model.entities
+      const GAPX = 80
+      const GAPY = 44
+      const HEAD = 30
+      const ROW = 18
+      const PAD = 10
+      const charWidth = (ch) => (ch.charCodeAt(0) > 255 ? 10.5 : 6.2)
+      const measure = (text) => [...String(text)].reduce((sum, ch) => sum + charWidth(ch), 0)
+      const fit = (text, max) => {
+        let width = 0
+        let out = ''
+        for (const ch of String(text)) {
+          const w = charWidth(ch)
+          if (width + w > max) return `${out}…`
+          width += w
+          out += ch
+        }
+        return out
+      }
+      const fieldLine = (field) => `${field.name}: ${field.type || '?'}${field.index ? ' · ' + field.index : ''}`
+      const longest = Math.max(200, ...entities.flatMap((e) => e.fields.map((f) => measure(fieldLine(f)) + 24)))
+      const W = Math.min(320, longest)
+      const boxH = (entity) => HEAD + Math.max(1, entity.fields.length) * ROW + PAD
+      const rowH = Math.max(...entities.map(boxH))
+      const cols = Math.min(3, entities.length)
+      const rows = Math.ceil(entities.length / cols)
       const width = cols * W + (cols - 1) * GAPX + 40
       const height = rows * rowH + (rows - 1) * GAPY + 40
       const pos = new Map()
-      model.entities.forEach((entity, i) => {
+      entities.forEach((entity, i) => {
         const col = i % cols
         const row = Math.floor(i / cols)
         pos.set(entity.name, { x: 20 + col * (W + GAPX), y: 20 + row * (rowH + GAPY), h: boxH(entity) })
       })
-      const edge = (a, b) => {
-        const from = pos.get(a)
-        const to = pos.get(b)
+      const edges = (model.relations ?? []).map((rel) => {
+        const from = pos.get(rel.from)
+        const to = pos.get(rel.to)
         if (!from || !to) return null
-        const x1 = from.x + W
+        const forward = to.x >= from.x
+        const x1 = forward ? from.x + W : from.x
         const y1 = from.y + from.h / 2
-        const x2 = to.x
+        const x2 = forward ? to.x : to.x + W
         const y2 = to.y + to.h / 2
-        const dx = Math.max(30, Math.abs(x2 - x1) / 2)
-        return `M ${x1} ${y1} C ${x1 + dx} ${y1}, ${x2 - dx} ${y2}, ${x2} ${y2}`
-      }
+        const dx = Math.max(36, Math.abs(x2 - x1) / 2)
+        const c1 = forward ? x1 + dx : x1 - dx
+        const c2 = forward ? x2 - dx : x2 + dx
+        return {
+          ...rel,
+          key: `${rel.from}->${rel.to}`,
+          d: `M ${x1} ${y1} C ${c1} ${y1}, ${c2} ${y2}, ${x2} ${y2}`,
+          mx: (x1 + x2) / 2,
+          my: (y1 + y2) / 2 - 5,
+          x1, y1, x2, y2,
+        }
+      }).filter(Boolean)
       return h('svg', {
         className: 'sb-er',
         viewBox: `0 0 ${width} ${height}`,
@@ -1034,23 +1066,27 @@ window.__ModuleLoader__.load({
         h('defs', null,
           h('marker', { id: 'sb-er-arrow', viewBox: '0 0 8 8', refX: 7, refY: 4, markerWidth: 6, markerHeight: 6, orient: 'auto' },
             h('path', { d: 'M0,0 L8,4 L0,8 Z', fill: 'currentColor', opacity: 0.55 }))),
-        (model.relations ?? []).map((rel, i) => {
-          const d = edge(rel.from, rel.to)
-          if (!d) return null
-          const from = pos.get(rel.from)
-          const to = pos.get(rel.to)
-          return h('g', { key: i },
-            h('path', { d, fill: 'none', stroke: 'currentColor', opacity: 0.45, strokeWidth: 1.2, markerEnd: 'url(#sb-er-arrow)' }),
-            h('text', {
-              x: (from.x + W + to.x) / 2,
-              y: (from.y + from.h / 2 + to.y + to.h / 2) / 2 - 4,
-              fontSize: 10,
-              textAnchor: 'middle',
-              fill: 'currentColor',
-              opacity: 0.65,
-            }, rel.type || '1..n'))
-        }),
-        model.entities.map((entity) => {
+        edges.map((edge) => h('g', { key: edge.key },
+          h('path', {
+            d: edge.d,
+            fill: 'none',
+            stroke: 'currentColor',
+            opacity: edge.inferred ? 0.35 : 0.55,
+            strokeWidth: 1.2,
+            strokeDasharray: edge.inferred ? '4 3' : undefined,
+            markerEnd: 'url(#sb-er-arrow)',
+          }),
+          h('circle', { cx: edge.x1, cy: edge.y1, r: 2.5, fill: 'currentColor', opacity: 0.5 }),
+          h('circle', { cx: edge.x2, cy: edge.y2, r: 2.5, fill: 'currentColor', opacity: 0.5 }),
+          h('text', {
+            x: edge.mx,
+            y: edge.my,
+            fontSize: 10,
+            textAnchor: 'middle',
+            fill: 'currentColor',
+            opacity: 0.7,
+          }, edge.type || '1..n'))),
+        entities.map((entity) => {
           const p = pos.get(entity.name)
           return h('g', { key: entity.name },
             h('rect', {
@@ -1058,15 +1094,15 @@ window.__ModuleLoader__.load({
               fill: 'var(--surface)', stroke: 'var(--border-strong)', strokeWidth: 1,
             }),
             h('rect', { x: p.x, y: p.y, width: W, height: HEAD, rx: 8, fill: 'var(--surface-2)' }),
-            h('text', { x: p.x + 10, y: p.y + 22, fontSize: 12, fontWeight: 600, fill: 'currentColor' }, entity.name),
+            h('text', { x: p.x + PAD, y: p.y + 19, fontSize: 12, fontWeight: 600, fill: 'currentColor' }, fit(entity.name, W - PAD * 2)),
             entity.fields.map((field, j) => h('text', {
               key: j,
-              x: p.x + 10,
-              y: p.y + HEAD + 15 + j * ROW,
+              x: p.x + PAD,
+              y: p.y + HEAD + 13 + j * ROW,
               fontSize: 10.5,
               fill: 'currentColor',
               opacity: 0.85,
-            }, `${field.name}: ${field.type || '?'}${field.index ? ' · ' + field.index : ''}`)))
+            }, fit(fieldLine(field), W - PAD * 2))))
         }))
     }
 
@@ -1092,6 +1128,10 @@ window.__ModuleLoader__.load({
           model?.entities?.length
             ? h('div', { style: { overflowX: 'auto' } }, h(ErDiagram, { model }))
             : h('div', { className: 'inline-empty' }, 'data-model.md 里没有解析到实体表。'),
+          model?.entities?.length > 1 && !(model.relations?.length)
+            ? h('p', { className: 'sb-small sb-muted' },
+                '未解析到关系：在 data-model.md 增加 ## Relations 表（From/To/Type/On），或使用形如 category_id 的外键字段。')
+            : null,
           h('p', { className: 'sb-small sb-muted', style: { marginTop: 10 } },
             '确认后，任何对 data-model.md 的修改都会让确认失效，需要重新确认。')) : null)
     }
