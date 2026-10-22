@@ -1,0 +1,15 @@
+{
+  "meta": {
+    "title": "SpecBoard",
+    "description": "Browse and edit OpenSpec requirements, capabilities and tasks, with a task dependency graph."
+  },
+  "panel": "SpecBoard",
+  "tabs": {
+    "list": "Requirements",
+    "graph": "Task graph"
+  },
+  "empty": {
+    "noProject": "No OpenSpec project found",
+    "noProjectHint": "Run npx openspec init at the project root, then refresh"
+  }
+}

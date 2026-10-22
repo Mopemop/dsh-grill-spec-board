@@ -1,0 +1,15 @@
+{
+  "meta": {
+    "title": "SpecBoard",
+    "description": "查看并编辑 OpenSpec 的需求、功能与任务，纵览所有任务依赖图。"
+  },
+  "panel": "SpecBoard",
+  "tabs": {
+    "list": "需求",
+    "graph": "任务图"
+  },
+  "empty": {
+    "noProject": "没有找到 OpenSpec 项目",
+    "noProjectHint": "在项目根目录执行 npx openspec init 后刷新"
+  }
+}
