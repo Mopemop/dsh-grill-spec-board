@@ -10,7 +10,6 @@ window.__ModuleLoader__.load({
 
     const PANEL_ID = 'specboard'
     const API = '/dsh-specboard/api'
-    const THEME_KEY = 'specboard.theme'
     const ROOT_KEY = 'specboard.root'
 
     /** UI 文案里所有工具相关字面量都来自当前适配器的 labels。 */
@@ -229,6 +228,47 @@ window.__ModuleLoader__.load({
           path ? h('span', { className: 'panel-path mono' }, path) : null))
     }
 
+    /** 读取 DSH 当前主题：body[data-ds-dark-theme] / 根 color-scheme / 主题来源属性。 */
+    function readDsTheme() {
+      if (typeof document === 'undefined') return 'light'
+      if (document.body?.hasAttribute('data-ds-dark-theme')) return 'dark'
+      const html = document.documentElement
+      const inline = html.style.colorScheme
+      if (inline === 'dark' || inline === 'light') return inline
+      const source = html.getAttribute('data-ds-theme-source')
+      if (source === 'dark' || source === 'light') return source
+      const computed = getComputedStyle(html).colorScheme || ''
+      if (computed.includes('dark')) return 'dark'
+      if (computed.includes('light')) return 'light'
+      return window.matchMedia?.('(prefers-color-scheme: dark)').matches ? 'dark' : 'light'
+    }
+
+    /** 跟随 DSH 整体主题：监听根节点与 body 上的主题属性变化。 */
+    function useDsTheme() {
+      const [theme, setTheme] = useState(readDsTheme)
+      useEffect(() => {
+        const update = () => setTheme(readDsTheme())
+        const observer = new MutationObserver(update)
+        observer.observe(document.documentElement, {
+          attributes: true,
+          attributeFilter: ['style', 'class', 'data-ds-theme-source', 'data-ds-dark-theme'],
+        })
+        if (document.body) {
+          observer.observe(document.body, {
+            attributes: true,
+            attributeFilter: ['style', 'class', 'data-ds-dark-theme'],
+          })
+        }
+        const media = window.matchMedia?.('(prefers-color-scheme: dark)')
+        media?.addEventListener?.('change', update)
+        return () => {
+          observer.disconnect()
+          media?.removeEventListener?.('change', update)
+        }
+      }, [])
+      return theme
+    }
+
     function ConflictBar({ onReload, onForce }) {
       return h('div', { className: 'conflict', role: 'alert' },
         h(Icon, { name: 'alert' }),
@@ -283,8 +323,7 @@ window.__ModuleLoader__.load({
         h('div', { className: 'menu-foot' }, '工作区 · ' + LABELS.adapterLabel))
     }
 
-    function Toolbar({ project, projects, view, theme, syncing, menuOpen, actions }) {
-      const dark = theme === 'dark'
+    function Toolbar({ project, projects, view, syncing, menuOpen, actions }) {
       return h('header', { className: 'toolbar' },
         h('div', { className: 'toolbar-inner' },
           h('button', { className: 'brand', onClick: () => actions.setView('list'), 'aria-label': 'SpecBoard · 返回需求列表' },
@@ -316,13 +355,7 @@ window.__ModuleLoader__.load({
             h('button', { className: 'tab', role: 'tab', 'aria-selected': view === 'list', onClick: () => actions.setView('list') },
               h(Icon, { name: 'list', cls: 'i-sm' }), '需求'),
             h('button', { className: 'tab', role: 'tab', 'aria-selected': view === 'graph', onClick: () => actions.setView('graph') },
-              h(Icon, { name: 'branch', cls: 'i-sm' }), '任务图')),
-          h('div', { className: 'tb-div' }),
-          h('button', {
-            className: 'icon-btn', onClick: actions.toggleTheme,
-            'aria-label': dark ? '切换到浅色主题' : '切换到深色主题',
-            title: dark ? '切换到浅色主题' : '切换到深色主题',
-          }, h(Icon, { name: dark ? 'sun' : 'moon' }))),
+              h(Icon, { name: 'branch', cls: 'i-sm' }), '任务图'))),
         h('div', { className: `sync-bar ${syncing ? 'is-active' : ''}` }, h('span', null)))
     }
 
@@ -1547,7 +1580,7 @@ window.__ModuleLoader__.load({
       const [project, setProject] = useState(null)
       const [changeId, setChangeId] = useState(null)
       const [view, setView] = useState('list')
-      const [theme, setTheme] = useState(() => (document.documentElement.dataset.theme === 'dark' ? 'dark' : 'light'))
+      const theme = useDsTheme()
       const [syncing, setSyncing] = useState(false)
       const [menuOpen, setMenuOpen] = useState(false)
       const [deleting, setDeleting] = useState(null)
@@ -1722,11 +1755,6 @@ window.__ModuleLoader__.load({
           try { localStorage.setItem(ROOT_KEY, nextRoot) } catch {}
         },
         refresh,
-        toggleTheme: () => {
-          const next = theme === 'dark' ? 'light' : 'dark'
-          setTheme(next)
-          try { localStorage.setItem(THEME_KEY, next) } catch {}
-        },
         toast,
         focusNew: () => {
           const el = document.querySelector('.sb-app [data-new-id], .sb-app .creator input')
@@ -1930,7 +1958,7 @@ window.__ModuleLoader__.load({
             toast('覆盖失败：' + (e.payload?.error ?? e.message), 'error')
           }
         },
-      }), [theme, refresh, toast, root, changeId, project, loadProjects, loadProject, drafts])
+      }), [refresh, toast, root, changeId, project, loadProjects, loadProject, drafts])
 
       const detail = project?.change ?? null
       LABELS = {
@@ -1950,7 +1978,6 @@ window.__ModuleLoader__.load({
           project: currentProject,
           projects,
           view,
-          theme,
           syncing,
           menuOpen,
           actions,
